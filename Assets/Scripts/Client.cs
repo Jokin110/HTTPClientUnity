@@ -233,10 +233,10 @@ class MyHTTPClient : MonoBehaviour
         {
             using (X509Certificate2 serverCert = new X509Certificate2(certificate))
             {
-                Debug.Log($"Server Certificate Details:\n"
-                + $"Subject: {serverCert.Subject}\n"
-                + $"Thumbprint: {serverCert.Thumbprint}\n"
-                + $"Expires: {serverCert.GetExpirationDateString()}");
+                //Debug.Log($"Server Certificate Details:\n"
+                //+ $"Subject: {serverCert.Subject}\n"
+                //+ $"Thumbprint: {serverCert.Thumbprint}\n"
+                //+ $"Expires: {serverCert.GetExpirationDateString()}");
 
                 // Check thumbprint match
                 bool thumbprintValid = serverCert.Thumbprint?.Equals(

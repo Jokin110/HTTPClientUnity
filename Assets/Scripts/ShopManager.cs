@@ -5,9 +5,10 @@ using TMPro;
 using UnityEngine.UI;
 using Newtonsoft.Json;
 using UnityEngine.SceneManagement;
-using static UnityEditor.Progress;
 using System.Linq;
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 
 public class ShopManager : MonoBehaviour
 {
@@ -41,8 +42,20 @@ public class ShopManager : MonoBehaviour
     [SerializeField]
     private Button m_BuyItemButton;
 
+    [SerializeField]
+    private TextMeshProUGUI m_ResponseOutputText;
+
+    private volatile Queue<ItemImage> m_ItemImagesToGenerate;
+
+    private static Mutex mutex = new Mutex(false, "MyMutex");
+
+    private Dictionary<int, Sprite> m_CachedItemImages;
+
     private void Start()
     {
+        m_ItemImagesToGenerate = new Queue<ItemImage>();
+        m_CachedItemImages = new Dictionary<int, Sprite>();
+
         for (int i = 0; i < m_InitialShopItemNumber; i++)
         {
             ShopItem newItem = Instantiate(m_ShopItemPrefab, m_ShopItemsParent).GetComponent<ShopItem>();
@@ -54,6 +67,30 @@ public class ShopManager : MonoBehaviour
         }
 
         GetItems();
+    }
+
+    private void Update()
+    {
+        if (m_ItemImagesToGenerate.Count > 0)
+        {
+            mutex.WaitOne();
+
+            ItemImage itemImage = m_ItemImagesToGenerate.Dequeue();
+
+            if (itemImage != null)
+            {
+                Sprite sprite = GenerateSprite(itemImage.m_ImageBytes);
+                itemImage.m_Item.SetSprite(sprite);
+
+                m_CachedItemImages.Add(itemImage.m_Item.m_ItemID, sprite);
+            }
+            else
+            {
+                Debug.Log("The item image is not set!");
+            }
+
+            mutex.ReleaseMutex();
+        }
     }
 
     public void GetItems()
@@ -82,6 +119,8 @@ public class ShopManager : MonoBehaviour
 
         ParsedHTTPResponse response = MyHTTPClient.SendRequestToServer("GET", requestURL);
 
+        m_ResponseOutputText.text = $"{response.m_StatusCode}: {response.m_StatusMessage}.";
+
         if (response.m_StatusCode == 202)
         {
             if (response.m_Headers["Content-Type"] == "application/json" && (int.TryParse(response.m_Headers["Content-Length"], out int i) ? i : 0) == response.m_Body.Length)
@@ -101,7 +140,17 @@ public class ShopManager : MonoBehaviour
                     int itemPrice = int.TryParse(item["itemPrice"].ToString(), out i) ? i : -1;
                     int itemStock = int.TryParse(item["itemStock"].ToString(), out i) ? i : -1;
 
-                    shopItem.InitializeShopItem(itemID, item["itemName"].ToString(), item["itemDescription"].ToString(), itemPrice, null, itemStock);
+                    if (m_CachedItemImages.ContainsKey(itemID))
+                    {
+                        shopItem.SetSprite(m_CachedItemImages[itemID]);
+                    }
+                    else
+                    {
+                        Thread getItemImage = new Thread(RequestImage);
+                        getItemImage.Start(shopItem);
+                    }
+
+                    shopItem.InitializeShopItem(itemID, item["itemName"].ToString(), item["itemDescription"].ToString(), itemPrice, itemStock);
 
                     m_ActiveShopItems.Enqueue(shopItem);
                 }
@@ -122,7 +171,7 @@ public class ShopManager : MonoBehaviour
     public void ShowItemFullscreen(ShopItem item)
     {
         m_ItemNameFS.text = item.m_Name;
-        m_ItemDescriptionFS.text = item.m_Desctiption;
+        m_ItemDescriptionFS.text = item.m_Description;
         m_ItemImageFS.sprite = item.m_Sprite;
         m_ItemPriceFS.text = $"{item.m_Price} €";
 
@@ -146,12 +195,14 @@ public class ShopManager : MonoBehaviour
         {
             ParsedHTTPResponse response = MyHTTPClient.SendRequestToServer("GET", $"/image?itemID={item.m_ItemID}");
 
+            m_ResponseOutputText.text = $"{response.m_StatusCode}: {response.m_StatusMessage}.";
+
             if (response.m_StatusCode == 200 && response.m_Headers["Content-Type"] == "image/png")
             {
-                item.m_Sprite = GenerateSprite(response.m_BodyBytes);
+                Sprite sprite = GenerateSprite(response.m_BodyBytes);
+                item.SetSprite(sprite);
 
-                Debug.Log($"Sprite size: {item.m_Sprite.rect.width}x{item.m_Sprite.rect.height}");
-                Debug.Log($"Image rect: {m_ItemImageFS.rectTransform.rect}");
+                m_CachedItemImages.Add(item.m_ItemID, sprite);
             }
         }
 
@@ -161,8 +212,29 @@ public class ShopManager : MonoBehaviour
         {
             Debug.LogError("Sprite assignment failed!");
         }
+    }
 
-        LayoutRebuilder.ForceRebuildLayoutImmediate(m_ItemImageFS.rectTransform);
+    private void RequestImage(object info)
+    {
+        ShopItem item = (ShopItem) info;
+
+        if (item.m_ItemID == 0)
+        {
+            Debug.Log("The item id of this item is for some reason 0!");
+        }
+
+        Thread.Sleep(10);
+
+        ParsedHTTPResponse response = MyHTTPClient.SendRequestToServer("GET", $"/image?itemID={item.m_ItemID}");
+
+        if (response.m_StatusCode == 200 && response.m_Headers["Content-Type"] == "image/png")
+        {
+            mutex.WaitOne();
+
+            m_ItemImagesToGenerate.Enqueue(new ItemImage(item, response.m_BodyBytes));
+
+            mutex.ReleaseMutex();
+        }
     }
 
     public void CloseItemFullscreen()
@@ -173,6 +245,8 @@ public class ShopManager : MonoBehaviour
     private void BuyItem(ShopItem item)
     {
         ParsedHTTPResponse response = MyHTTPClient.SendRequestToServer("PATCH", $"/buyItem?itemID={item.m_ItemID}");
+
+        m_ResponseOutputText.text = $"{response.m_StatusCode}: {response.m_StatusMessage}.";
 
         if (response.m_StatusCode == 214)
         {
@@ -244,4 +318,16 @@ public class ShopManager : MonoBehaviour
 class ShopItems
 {
     public Dictionary<string, object>[] m_Items;
+}
+
+class ItemImage
+{
+    public ShopItem m_Item;
+    public byte[] m_ImageBytes;
+
+    public ItemImage(ShopItem item, byte[] imageBytes)
+    {
+        m_Item = item;
+        m_ImageBytes = imageBytes;
+    }
 }

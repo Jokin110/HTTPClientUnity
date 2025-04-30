@@ -17,7 +17,7 @@ public class ShopItem : MonoBehaviour
 
     public int m_ItemID { get; set; }
     public string m_Name { get; set; }
-    public string m_Desctiption { get; set; }
+    public string m_Description { get; set; }
     public int m_Price { get; set; }
     public Sprite m_Sprite { get; set; }
     public int m_Stock { get; set; }
@@ -31,19 +31,24 @@ public class ShopItem : MonoBehaviour
         m_Button = GetComponent<Button>();
     }
 
-    public void InitializeShopItem(int itemID, string name, string description, int price, Sprite image, int stock)
+    public void InitializeShopItem(int itemID, string name, string description, int price, int stock)
     {
         m_ItemID = itemID;
         m_Name = name;
-        m_Desctiption = description;
+        m_Description = description;
         m_Price = price;
-        m_Sprite = image;
         m_Stock = stock;
 
         m_NameText.text = name;
         m_PriceText.text = price + " €";
-        m_Image.sprite = image;
+        m_Image.sprite = m_Sprite;
 
         m_Button.onClick.AddListener(() => m_ShopManager.ShowItemFullscreen(this));
+    }
+
+    public void SetSprite(Sprite sprite)
+    {
+        m_Sprite = sprite;
+        m_Image.sprite = m_Sprite;
     }
 }
