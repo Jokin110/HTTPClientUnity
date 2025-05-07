@@ -145,7 +145,7 @@ public class ShopManager : MonoBehaviour
                     if (m_CachedItemImages.ContainsKey(itemID))
                     {
                         DateTime cachedTime = m_CachedImageTimes.ContainsKey(itemID) ? m_CachedImageTimes[itemID] : DateTime.MinValue;
-                        ParsedHTTPResponse headResponse = MyHTTPClient.SendRequestToServer("HEAD", $"/image?itemID={itemID}");
+                        ParsedHTTPResponse headResponse = MyHTTPClient.SendRequestToServer("GET", $"/image?itemID={itemID}");
 
                         if (headResponse.m_StatusCode == 304)
                         {
@@ -224,7 +224,7 @@ public class ShopManager : MonoBehaviour
             if (m_CachedImageTimes.TryGetValue(item.m_ItemID, out DateTime cachedTime))
             {
                 ParsedHTTPResponse headResponse = MyHTTPClient.SendRequestToServer(
-                    "HEAD",
+                    "GET",
                     $"/image?itemID={item.m_ItemID}",
                     headers: $"If-Modified-Since: {cachedTime.ToString("r")}\r\n"
                 );
@@ -263,7 +263,7 @@ public class ShopManager : MonoBehaviour
         Thread.Sleep(10);
 
 
-        ParsedHTTPResponse headResponse = MyHTTPClient.SendRequestToServer("HEAD", $"/image?itemID={item.m_ItemID}");
+        ParsedHTTPResponse headResponse = MyHTTPClient.SendRequestToServer("GET", $"/image?itemID={item.m_ItemID}");
 
         if (headResponse.m_StatusCode == 304)
         {
