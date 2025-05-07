@@ -279,7 +279,6 @@ public class ShopManager : MonoBehaviour
         {
             DateTime newTime = DateTime.Parse(response.m_Headers["Last-Modified"]);
             m_CachedImageTimes[item.m_ItemID] = newTime;
-            //PlayerPrefs.SetString($"img_{item.m_ItemID}", newTime.ToString("r"));
 
             mutex.WaitOne();
             m_ItemImagesToGenerate.Enqueue(new ItemImage(item, response.m_BodyBytes));
