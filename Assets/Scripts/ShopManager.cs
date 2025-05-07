@@ -50,6 +50,7 @@ public class ShopManager : MonoBehaviour
     private static Mutex mutex = new Mutex(false, "MyMutex");
 
     private Dictionary<int, Sprite> m_CachedItemImages;
+    private readonly Dictionary<int, DateTime> m_CachedImageTimes = new Dictionary<int, DateTime>();
 
     private void Start()
     {
@@ -83,6 +84,7 @@ public class ShopManager : MonoBehaviour
                 itemImage.m_Item.SetSprite(sprite);
 
                 m_CachedItemImages.Add(itemImage.m_Item.m_ItemID, sprite);
+
             }
             else
             {
@@ -142,13 +144,25 @@ public class ShopManager : MonoBehaviour
 
                     if (m_CachedItemImages.ContainsKey(itemID))
                     {
-                        shopItem.SetSprite(m_CachedItemImages[itemID]);
+                        DateTime cachedTime = m_CachedImageTimes.ContainsKey(itemID) ? m_CachedImageTimes[itemID] : DateTime.MinValue;
+                        ParsedHTTPResponse headResponse = MyHTTPClient.SendRequestToServer("HEAD", $"/image?itemID={itemID}");
+
+                        if (headResponse.m_StatusCode == 304)
+                        {
+                            shopItem.SetSprite(m_CachedItemImages[itemID]);
+                        }
+                        else
+                        {
+                            Thread getItemImage = new Thread(RequestImage);
+                            getItemImage.Start(shopItem);
+                        }
                     }
                     else
                     {
                         Thread getItemImage = new Thread(RequestImage);
                         getItemImage.Start(shopItem);
                     }
+
 
                     shopItem.InitializeShopItem(itemID, item["itemName"].ToString(), item["itemDescription"].ToString(), itemPrice, itemStock);
 
@@ -205,6 +219,28 @@ public class ShopManager : MonoBehaviour
                 m_CachedItemImages.Add(item.m_ItemID, sprite);
             }
         }
+        else
+        {
+            if (m_CachedImageTimes.TryGetValue(item.m_ItemID, out DateTime cachedTime))
+            {
+                ParsedHTTPResponse headResponse = MyHTTPClient.SendRequestToServer(
+                    "HEAD",
+                    $"/image?itemID={item.m_ItemID}",
+                    headers: $"If-Modified-Since: {cachedTime.ToString("r")}\r\n"
+                );
+
+                if (headResponse.m_StatusCode == 304)
+                {
+                    m_ItemImageFS.sprite = m_CachedItemImages[item.m_ItemID];
+                }
+                else
+                {
+                    RequestImage(item);
+                    m_ItemImageFS.sprite = m_CachedItemImages[item.m_ItemID];
+                }
+            }
+        }
+
 
         m_ItemImageFS.sprite = item.m_Sprite;
 
@@ -218,6 +254,7 @@ public class ShopManager : MonoBehaviour
     {
         ShopItem item = (ShopItem) info;
 
+
         if (item.m_ItemID == 0)
         {
             Debug.Log("The item id of this item is for some reason 0!");
@@ -225,14 +262,27 @@ public class ShopManager : MonoBehaviour
 
         Thread.Sleep(10);
 
-        ParsedHTTPResponse response = MyHTTPClient.SendRequestToServer("GET", $"/image?itemID={item.m_ItemID}");
+
+        ParsedHTTPResponse headResponse = MyHTTPClient.SendRequestToServer("HEAD", $"/image?itemID={item.m_ItemID}");
+
+        if (headResponse.m_StatusCode == 304)
+        {
+            item.SetSprite(m_CachedItemImages[item.m_ItemID]);
+            return;
+        }
+
+        DateTime cachedTime = m_CachedImageTimes.ContainsKey(item.m_ItemID) ? m_CachedImageTimes[item.m_ItemID] : DateTime.MinValue;
+
+        ParsedHTTPResponse response = MyHTTPClient.SendRequestToServer("GET",$"/image?itemID={item.m_ItemID}",headers: $"If-Modified-Since: {cachedTime.ToString("r")}\r\n");
 
         if (response.m_StatusCode == 200 && response.m_Headers["Content-Type"] == "image/png")
         {
+            DateTime newTime = DateTime.Parse(response.m_Headers["Last-Modified"]);
+            m_CachedImageTimes[item.m_ItemID] = newTime;
+            //PlayerPrefs.SetString($"img_{item.m_ItemID}", newTime.ToString("r"));
+
             mutex.WaitOne();
-
             m_ItemImagesToGenerate.Enqueue(new ItemImage(item, response.m_BodyBytes));
-
             mutex.ReleaseMutex();
         }
     }
